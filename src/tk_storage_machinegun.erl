@@ -18,6 +18,7 @@
 -export([process_notification/4]).
 
 -type storage_opts() :: #{
+    machinery_backend := machinegun | progressor | hybrid,
     namespace := namespace(),
     automaton := automaton()
 }.
@@ -141,7 +142,18 @@ create_handler(ProcessorOpts) ->
         }
     }}.
 
-backend(#{automaton := Automaton}, WoodyContext) ->
+backend(#{machinery_backend := hybrid, namespace := _, automaton := _} = Opts, WoodyContext) ->
+    {machinery_hybrid_backend, #{
+        primary_backend => backend(Opts#{machinery_backend := progressor}, WoodyContext),
+        fallback_backend => backend(Opts#{machinery_backend := machinegun}, WoodyContext)
+    }};
+backend(#{machinery_backend := progressor, namespace := Namespace}, WoodyContext) ->
+    machinery_prg_backend:new(WoodyContext, #{
+        namespace => Namespace,
+        handler => ?MODULE,
+        schema => ?MACHINERY_SCHEMA
+    });
+backend(#{machinery_backend := machinegun, automaton := Automaton}, WoodyContext) ->
     machinery_mg_backend:new(WoodyContext, #{
         client => get_woody_client(Automaton),
         schema => ?MACHINERY_SCHEMA
