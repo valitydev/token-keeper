@@ -47,6 +47,7 @@
 -type test_case_name() :: atom().
 
 -define(CONFIG(Key, C), (element(2, lists:keyfind(Key, 1, C)))).
+-define(UPDATE_CONFIG(Key, C, F), lists:keyreplace(Key, 1, C, {Key, F(?CONFIG(Key, C))})).
 
 %%
 
@@ -79,7 +80,9 @@ all() ->
         {group, external_detect_token},
         {group, blacklist},
         {group, ephemeral},
-        {group, offline}
+        {group, offline_machinegun},
+        {group, offline_progressor},
+        {group, offline_hybrid}
     ].
 
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
@@ -103,6 +106,9 @@ groups() ->
             authenticate_ephemeral_claim_token_ok,
             issue_ephemeral_token_ok
         ]},
+        {offline_machinegun, [], [{group, offline}]},
+        {offline_progressor, [], [{group, offline}]},
+        {offline_hybrid, [], [{group, offline}]},
         {offline, [parallel], [
             authenticate_invalid_token_type_fail,
             authenticate_invalid_token_key_fail,
@@ -259,7 +265,79 @@ init_per_group(ephemeral = Name, C) ->
         {token_ephemeral_authority, ?TK_AUTHORITY_CAPI} => mk_url(AuthorityPath)
     },
     [{groupname, Name}, {service_urls, ServiceUrls} | C0 ++ C];
-init_per_group(offline = Name, C) ->
+init_per_group(offline_machinegun = Name, C) ->
+    init_for_offline(Name, machinegun, C);
+init_per_group(offline_progressor = Name, C0) ->
+    C1 = init_for_offline(Name, progressor, C0),
+    init_with_progressor(C1);
+init_per_group(offline_hybrid = Name, C0) ->
+    C1 = init_for_offline(Name, hybrid, C0),
+    init_with_progressor(C1);
+init_per_group(offline = _Name, C) ->
+    C.
+
+init_with_progressor(C) ->
+    NewApps =
+        genlib_app:start_application_with(
+            epg_connector,
+            [
+                {databases, #{
+                    default_db => #{
+                        host => "postgres",
+                        port => 5432,
+                        database => "progressor_db",
+                        username => "progressor",
+                        password => "progressor"
+                    }
+                }},
+                {pools, #{
+                    default_pool => #{
+                        database => default_db,
+                        size => 30
+                    }
+                }}
+            ]
+        ) ++
+            genlib_app:start_application_with(
+                progressor,
+                [
+                    {call_wait_timeout, 20},
+                    {defaults, #{
+                        storage => #{
+                            client => prg_pg_backend,
+                            options => #{
+                                pool => default_pool
+                            }
+                        },
+                        retry_policy => #{
+                            initial_timeout => 5,
+                            backoff_coefficient => 1.0,
+                            %% seconds
+                            max_timeout => 180,
+                            max_attempts => 3,
+                            non_retryable_errors => []
+                        },
+                        task_scan_timeout => 1,
+                        worker_pool_size => 100,
+                        process_step_timeout => 30
+                    }},
+                    {namespaces, #{
+                        'apikeymgmt' => #{
+                            processor => #{
+                                client => machinery_prg_backend,
+                                options => #{
+                                    namespace => 'apikeymgmt',
+                                    handler => {tk_storage_machinegun, #{}},
+                                    schema => tk_storage_machinegun_schema
+                                }
+                            }
+                        }
+                    }}
+                ]
+            ),
+    ?UPDATE_CONFIG(keeper_apps, C, fun(Apps) -> Apps ++ NewApps end).
+
+init_for_offline(Name, MachineryMode, C) ->
     AuthenticatorPath = <<"/v2/authenticator">>,
     AuthorityPath = <<"/v2/authority/com.rbkmoney.apikemgmt">>,
     C0 = start_keeper([
@@ -310,6 +388,7 @@ init_per_group(offline = Name, C) ->
         {storages, #{
             ?TK_AUTHORITY_APIKEYMGMT =>
                 {machinegun, #{
+                    machinery_backend => MachineryMode,
                     namespace => apikeymgmt,
                     automaton => #{
                         url => <<"http://machinegun:8022/v1/automaton">>,
