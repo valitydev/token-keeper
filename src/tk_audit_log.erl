@@ -92,7 +92,7 @@ mk_logger_backend_config(BackendOpts) ->
         BackendConfig
     ).
 
-tune_backend_config(Opts = #{type := file}) ->
+tune_backend_config(#{type := file} = Opts) ->
     _ = maps:get(file, Opts),
     % NOTE
     % All those options chosen to push message loss probability as close to zero as possible.
@@ -164,11 +164,11 @@ terminate(Reason, State1) ->
 % Please take care to update it when upgrading to newer Erlang OTP releases.
 emit_log_sync(
     Bin,
-    State = #{
+    #{
         id := Name,
         module := Module,
         handler_state := HandlerState
-    }
+    } = State
 ) ->
     {Result, HS1} = Module:write(Name, sync, Bin, HandlerState),
     {Result, State#{
@@ -287,7 +287,7 @@ encode_token(TokenInfo) ->
         payload => maps:get(payload, TokenInfo)
     }.
 
-encode_token_source(TokenSourceContext = #{}) ->
+encode_token_source(#{} = TokenSourceContext) ->
     TokenSourceContext.
 
 encode_authority_id(AuthorityID) when is_binary(AuthorityID) ->
@@ -296,12 +296,12 @@ encode_authority_id(AuthorityID) when is_binary(AuthorityID) ->
 encode_authdata_id(AuthDataID) when is_binary(AuthDataID) ->
     AuthDataID.
 
-extract_woody_ctx(WoodyCtx = #{rpc_id := RpcID}, Acc) ->
+extract_woody_ctx(#{rpc_id := RpcID} = WoodyCtx, Acc) ->
     extract_woody_meta(WoodyCtx, extract_woody_rpc_id(RpcID, Acc));
 extract_woody_ctx(undefined, Acc) ->
     Acc.
 
-extract_woody_rpc_id(RpcID = #{span_id := _, trace_id := _, parent_id := _}, Acc) ->
+extract_woody_rpc_id(#{span_id := _, trace_id := _, parent_id := _} = RpcID, Acc) ->
     maps:merge(Acc, RpcID).
 
 extract_woody_meta(#{meta := Meta}, Acc) when map_size(Meta) > 0 ->

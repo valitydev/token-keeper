@@ -67,7 +67,7 @@ handle_function('Authenticate' = Op, {Token, TokenSourceContext}, Opts, State) -
 
 %% Internal functions
 
-get_authdata(TokenData = #{authority_id := AuthorityID}, Opts, #{context := Context}) ->
+get_authdata(#{authority_id := AuthorityID} = TokenData, Opts, #{context := Context}) ->
     case get_authdata_by_authority(get_authority_config(AuthorityID, Opts), TokenData, Context) of
         {ok, AuthData} ->
             {ok, maybe_add_authority_id(AuthData, AuthorityID)};
@@ -92,7 +92,7 @@ get_authdata_from_sources([SourceOpts | Rest], TokenData, WoodyCtx) ->
 get_authority_config(AuthorityID, #{authorities := Configs}) ->
     maps:get(AuthorityID, Configs).
 
-maybe_add_authority_id(AuthData = #{authority := _}, _AuthorityID) ->
+maybe_add_authority_id(#{authority := _} = AuthData, _AuthorityID) ->
     AuthData;
 maybe_add_authority_id(AuthData, AuthorityID) ->
     AuthData#{authority => AuthorityID}.
@@ -125,7 +125,7 @@ encode_auth_data(
 
 %%
 
-save_pulse_metadata(Metadata, State = #{pulse_metadata := PulseMetadata}) ->
+save_pulse_metadata(Metadata, #{pulse_metadata := PulseMetadata} = State) ->
     State#{pulse_metadata => maps:merge(Metadata, PulseMetadata)}.
 
 pulse_op_stated(Op, State) ->

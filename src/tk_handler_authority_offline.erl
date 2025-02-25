@@ -144,7 +144,7 @@ encode_auth_data(
 
 %%
 
-save_pulse_metadata(Metadata, State = #{pulse_metadata := PulseMetadata}) ->
+save_pulse_metadata(Metadata, #{pulse_metadata := PulseMetadata} = State) ->
     State#{pulse_metadata => maps:merge(Metadata, PulseMetadata)}.
 
 pulse_op_stated(Op, State) ->
