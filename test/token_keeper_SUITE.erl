@@ -48,7 +48,7 @@
 
 -define(CONFIG(Key, C), (element(2, lists:keyfind(Key, 1, C)))).
 -define(UPDATE_CONFIG(Key, C, F),
-    case lists:keysearch(Key, 1, C) of
+    case lists:keyfind(Key, 1, C) of
         false -> [{Key, F(undefined)} | C];
         _ -> lists:keyreplace(Key, 1, C, {Key, F(?CONFIG(Key, C))})
     end
@@ -142,7 +142,7 @@ init_per_suite(C) ->
             genlib_app:start_application_with(scoper, [
                 {storage, scoper_storage_logger}
             ]),
-    [{suite_apps, Apps} | C].
+    [{suite_apps, Apps}, {keeper_apps, []} | C].
 
 -spec end_per_suite(config()) -> ok.
 end_per_suite(C) ->
@@ -282,7 +282,7 @@ init_per_group(offline = _Name, C) ->
     C.
 
 init_with_progressor(C) ->
-    NewApps =
+    Apps =
         genlib_app:start_application_with(
             epg_connector,
             [
@@ -340,10 +340,7 @@ init_with_progressor(C) ->
                     }}
                 ]
             ),
-    ?UPDATE_CONFIG(keeper_apps, C, fun
-        (undefined) -> NewApps;
-        (Apps) -> Apps ++ NewApps
-    end).
+    ?UPDATE_CONFIG(keeper_apps, C, fun(Apps0) -> genlib:define(Apps0, []) ++ Apps end).
 
 init_for_offline(Name, MachineryMode, C0) ->
     AuthenticatorPath = <<"/v2/authenticator">>,
@@ -949,7 +946,7 @@ start_keeper(C, Env) ->
             }}
         ] ++ Env
     ),
-    ?UPDATE_CONFIG(keeper_apps, C, fun(_) -> Apps end).
+    ?UPDATE_CONFIG(keeper_apps, C, fun(Apps0) -> genlib:define(Apps0, []) ++ Apps end).
 
 stop_keeper(C) ->
     genlib_app:stop_unload_applications(?CONFIG(keeper_apps, C)).
