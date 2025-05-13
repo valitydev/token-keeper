@@ -47,6 +47,12 @@
 -type test_case_name() :: atom().
 
 -define(CONFIG(Key, C), (element(2, lists:keyfind(Key, 1, C)))).
+-define(UPDATE_CONFIG(Key, C, F),
+    case lists:keyfind(Key, 1, C) of
+        false -> [{Key, F(undefined)} | C];
+        _ -> lists:keyreplace(Key, 1, C, {Key, F(?CONFIG(Key, C))})
+    end
+).
 
 %%
 
@@ -79,7 +85,9 @@ all() ->
         {group, external_detect_token},
         {group, blacklist},
         {group, ephemeral},
-        {group, offline}
+        {group, offline_machinegun},
+        {group, offline_progressor},
+        {group, offline_hybrid}
     ].
 
 -spec groups() -> [{group_name(), list(), [test_case_name()]}].
@@ -103,6 +111,9 @@ groups() ->
             authenticate_ephemeral_claim_token_ok,
             issue_ephemeral_token_ok
         ]},
+        {offline_machinegun, [], [{group, offline}]},
+        {offline_progressor, [], [{group, offline}]},
+        {offline_hybrid, [], [{group, offline}]},
         {offline, [parallel], [
             authenticate_invalid_token_type_fail,
             authenticate_invalid_token_key_fail,
@@ -131,16 +142,16 @@ init_per_suite(C) ->
             genlib_app:start_application_with(scoper, [
                 {storage, scoper_storage_logger}
             ]),
-    [{suite_apps, Apps} | C].
+    [{suite_apps, Apps}, {keeper_apps, []} | C].
 
 -spec end_per_suite(config()) -> ok.
 end_per_suite(C) ->
     genlib_app:stop_unload_applications(?CONFIG(suite_apps, C)).
 % @TODO Pending configurator
 -spec init_per_group(group_name(), config()) -> config().
-init_per_group(external_detect_token = Name, C) ->
+init_per_group(external_detect_token = Name, C0) ->
     AuthenticatorPath = <<"/v2/authenticator">>,
-    C0 = start_keeper([
+    C = start_keeper(C0, [
         {authenticator, #{
             service => #{
                 path => AuthenticatorPath
@@ -159,7 +170,7 @@ init_per_group(external_detect_token = Name, C) ->
                 },
                 keyset => #{
                     ?TK_KEY_KEYCLOAK => #{
-                        source => {pem_file, get_filename("keys/local/public.pem", C)}
+                        source => {pem_file, get_filename("keys/local/public.pem", C0)}
                     }
                 }
             }
@@ -168,10 +179,10 @@ init_per_group(external_detect_token = Name, C) ->
     ServiceUrls = #{
         token_authenticator => mk_url(AuthenticatorPath)
     },
-    [{groupname, Name}, {service_urls, ServiceUrls} | C0 ++ C];
-init_per_group(blacklist = Name, C) ->
+    [{groupname, Name}, {service_urls, ServiceUrls} | C];
+init_per_group(blacklist = Name, C0) ->
     AuthenticatorPath = <<"/v2/authenticator">>,
-    C0 = start_keeper([
+    C = start_keeper(C0, [
         {authenticator, #{
             service => #{
                 path => AuthenticatorPath
@@ -195,26 +206,26 @@ init_per_group(blacklist = Name, C) ->
                 },
                 keyset => #{
                     <<"blacklisting_authority.key">> => #{
-                        source => {pem_file, get_filename("keys/local/private.pem", C)}
+                        source => {pem_file, get_filename("keys/local/private.pem", C0)}
                     },
                     ?TK_KEY_CAPI => #{
-                        source => {pem_file, get_filename("keys/secondary/private.pem", C)}
+                        source => {pem_file, get_filename("keys/secondary/private.pem", C0)}
                     }
                 }
             }
         }},
         {blacklist, #{
-            path => get_filename("blacklisted_keys.yaml", C)
+            path => get_filename("blacklisted_keys.yaml", C0)
         }}
     ]),
     ServiceUrls = #{
         token_authenticator => mk_url(AuthenticatorPath)
     },
-    [{groupname, Name}, {service_urls, ServiceUrls} | C0 ++ C];
-init_per_group(ephemeral = Name, C) ->
+    [{groupname, Name}, {service_urls, ServiceUrls} | C];
+init_per_group(ephemeral = Name, C0) ->
     AuthenticatorPath = <<"/v2/authenticator">>,
     AuthorityPath = <<"/v2/authority/com.rbkmoney.access.capi">>,
-    C0 = start_keeper([
+    C = start_keeper(C0, [
         {authenticator, #{
             service => #{
                 path => AuthenticatorPath
@@ -248,7 +259,7 @@ init_per_group(ephemeral = Name, C) ->
                 },
                 keyset => #{
                     ?TK_KEY_CAPI => #{
-                        source => {pem_file, get_filename("keys/local/private.pem", C)}
+                        source => {pem_file, get_filename("keys/local/private.pem", C0)}
                     }
                 }
             }
@@ -258,11 +269,83 @@ init_per_group(ephemeral = Name, C) ->
         token_authenticator => mk_url(AuthenticatorPath),
         {token_ephemeral_authority, ?TK_AUTHORITY_CAPI} => mk_url(AuthorityPath)
     },
-    [{groupname, Name}, {service_urls, ServiceUrls} | C0 ++ C];
-init_per_group(offline = Name, C) ->
+    [{groupname, Name}, {service_urls, ServiceUrls} | C];
+init_per_group(offline_machinegun = Name, C) ->
+    init_for_offline(Name, machinegun, C);
+init_per_group(offline_progressor = Name, C0) ->
+    C1 = init_with_progressor(C0),
+    init_for_offline(Name, progressor, C1);
+init_per_group(offline_hybrid = Name, C0) ->
+    C1 = init_with_progressor(C0),
+    init_for_offline(Name, hybrid, C1);
+init_per_group(offline = _Name, C) ->
+    C.
+
+init_with_progressor(C) ->
+    Apps =
+        genlib_app:start_application_with(
+            epg_connector,
+            [
+                {databases, #{
+                    default_db => #{
+                        host => "postgres",
+                        port => 5432,
+                        database => "progressor_db",
+                        username => "progressor",
+                        password => "progressor"
+                    }
+                }},
+                {pools, #{
+                    default_pool => #{
+                        database => default_db,
+                        size => 30
+                    }
+                }}
+            ]
+        ) ++
+            genlib_app:start_application_with(
+                progressor,
+                [
+                    {call_wait_timeout, 20},
+                    {defaults, #{
+                        storage => #{
+                            client => prg_pg_backend,
+                            options => #{
+                                pool => default_pool
+                            }
+                        },
+                        retry_policy => #{
+                            initial_timeout => 5,
+                            backoff_coefficient => 1.0,
+                            %% seconds
+                            max_timeout => 180,
+                            max_attempts => 3,
+                            non_retryable_errors => []
+                        },
+                        task_scan_timeout => 1,
+                        worker_pool_size => 100,
+                        process_step_timeout => 30
+                    }},
+                    {namespaces, #{
+                        'apikeymgmt' => #{
+                            processor => #{
+                                client => machinery_prg_backend,
+                                options => #{
+                                    namespace => 'apikeymgmt',
+                                    handler => {tk_storage_machinegun, #{}},
+                                    schema => tk_storage_machinegun_schema
+                                }
+                            }
+                        }
+                    }}
+                ]
+            ),
+    ?UPDATE_CONFIG(keeper_apps, C, fun(Apps0) -> genlib:define(Apps0, []) ++ Apps end).
+
+init_for_offline(Name, MachineryMode, C0) ->
     AuthenticatorPath = <<"/v2/authenticator">>,
     AuthorityPath = <<"/v2/authority/com.rbkmoney.apikemgmt">>,
-    C0 = start_keeper([
+    C = start_keeper(C0, [
         {authenticator, #{
             service => #{
                 path => AuthenticatorPath
@@ -302,7 +385,7 @@ init_per_group(offline = Name, C) ->
                 },
                 keyset => #{
                     ?TK_KEY_APIKEYMGMT => #{
-                        source => {pem_file, get_filename("keys/local/private.pem", C)}
+                        source => {pem_file, get_filename("keys/local/private.pem", C0)}
                     }
                 }
             }
@@ -310,6 +393,7 @@ init_per_group(offline = Name, C) ->
         {storages, #{
             ?TK_AUTHORITY_APIKEYMGMT =>
                 {machinegun, #{
+                    machinery_backend => MachineryMode,
                     namespace => apikeymgmt,
                     automaton => #{
                         url => <<"http://machinegun:8022/v1/automaton">>,
@@ -323,7 +407,7 @@ init_per_group(offline = Name, C) ->
         token_authenticator => mk_url(AuthenticatorPath),
         {token_authority, ?TK_AUTHORITY_APIKEYMGMT} => mk_url(AuthorityPath)
     },
-    [{groupname, Name}, {service_urls, ServiceUrls} | C0 ++ C].
+    [{groupname, Name}, {service_urls, ServiceUrls} | C].
 
 -spec end_per_group(group_name(), config()) -> _.
 end_per_group(_GroupName, C) ->
@@ -849,7 +933,7 @@ unique_id() ->
 
 %%
 
-start_keeper(Env) ->
+start_keeper(C, Env) ->
     Port = 8022,
     Apps = genlib_app:start_application_with(
         token_keeper,
@@ -862,7 +946,7 @@ start_keeper(Env) ->
             }}
         ] ++ Env
     ),
-    [{keeper_apps, Apps}].
+    ?UPDATE_CONFIG(keeper_apps, C, fun(Apps0) -> genlib:define(Apps0, []) ++ Apps end).
 
 stop_keeper(C) ->
     genlib_app:stop_unload_applications(?CONFIG(keeper_apps, C)).
