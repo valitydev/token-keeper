@@ -20,16 +20,32 @@
 %% API functions
 
 -spec extract_context(tk_token:token_data(), opts()) -> tk_context_extractor:extracted_context() | undefined.
-extract_context(#{id := TokenID, payload := Payload}, Opts) ->
+extract_context(#{id := TokenID, payload := Payload} = TokenData, Opts) ->
     case extract_party_data(Payload) of
         {ok, PartyID} ->
-            create_context_and_metadata(TokenID, PartyID, Opts);
+            case check_blacklist(PartyID, TokenData) of
+                ok ->
+                    create_context_and_metadata(TokenID, PartyID, Opts);
+                {error, blacklisted} ->
+                    _ = logger:warning("phony_api_key context was extract, but it blacklisted for user id: ~p", [
+                        PartyID
+                    ]),
+                    undefined
+            end;
         {error, Reason} ->
             _ = logger:warning("Could not extract phony_api_key context, reason: ~p", [Reason]),
             undefined
     end.
 
 %%
+
+check_blacklist(PartyID, #{authority_id := AuthorityID}) ->
+    case tk_blacklist:is_user_blacklisted(PartyID, AuthorityID) of
+        false ->
+            ok;
+        true ->
+            {error, blacklisted}
+    end.
 
 create_context_and_metadata(TokenID, PartyID, Opts) ->
     {

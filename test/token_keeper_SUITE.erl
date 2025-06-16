@@ -29,6 +29,7 @@
 -export([authenticate_user_session_token_w_resource_access/1]).
 -export([authenticate_blacklisted_jti_fail/1]).
 -export([authenticate_non_blacklisted_jti_ok/1]).
+-export([authenticate_blacklisted_user_fail/1]).
 -export([authenticate_ephemeral_claim_token_ok/1]).
 -export([issue_ephemeral_token_ok/1]).
 -export([authenticate_offline_token_not_found_fail/1]).
@@ -129,7 +130,8 @@ groups() ->
         ]},
         {blacklist, [parallel], [
             authenticate_blacklisted_jti_fail,
-            authenticate_non_blacklisted_jti_ok
+            authenticate_non_blacklisted_jti_ok,
+            authenticate_blacklisted_user_fail
         ]}
     ].
 
@@ -565,6 +567,14 @@ authenticate_non_blacklisted_jti_ok(C) ->
     Claims = get_phony_api_key_claims(JTI, SubjectID),
     Token = issue_token_with(Claims, get_filename("keys/secondary/private.pem", C)),
     ?assertMatch(#token_keeper_AuthData{}, call_authenticate(Token, ?TOKEN_SOURCE_CONTEXT, C)).
+
+-spec authenticate_blacklisted_user_fail(config()) -> _.
+authenticate_blacklisted_user_fail(C) ->
+    JTI = unique_id(),
+    SubjectID = <<"PARTYID">>,
+    Claims = get_phony_api_key_claims(JTI, SubjectID),
+    Token = issue_token_with(Claims, get_filename("keys/local/private.pem", C)),
+    ?assertThrow(#token_keeper_AuthDataNotFound{}, call_authenticate(Token, ?TOKEN_SOURCE_CONTEXT, C)).
 
 -spec authenticate_ephemeral_claim_token_ok(config()) -> _.
 authenticate_ephemeral_claim_token_ok(C) ->
