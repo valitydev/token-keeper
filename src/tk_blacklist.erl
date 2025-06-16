@@ -66,7 +66,7 @@ load_blacklist_conf(Filename) ->
     [Mappings] = yamerl_constr:file(Filename),
     Entries = process_entries(proplists:get_value(?ENTRIES_KEY, Mappings)),
     put_entires(?TAB, Entries),
-    UserEntries = process_entries(proplists:get_value(?USER_ENTRIES_KEY, Mappings)),
+    UserEntries = process_entries(proplists:get_value(?USER_ENTRIES_KEY, Mappings, [])),
     put_entires(?USER_TAB, UserEntries).
 
 process_entries(Entries) ->
