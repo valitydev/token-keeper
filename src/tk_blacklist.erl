@@ -5,7 +5,6 @@
 %% API
 
 -export([is_blacklisted/2]).
--export([is_user_blacklisted/2]).
 
 %% Supervisor callbacks
 
@@ -24,7 +23,6 @@
 %%
 
 -define(TAB, ?MODULE).
--define(USER_TAB, user_blacklist).
 
 %%
 
@@ -38,26 +36,20 @@ child_spec(Options) ->
 
 -spec is_blacklisted(tk_token:token_id(), tk_token:authority_id()) -> boolean().
 is_blacklisted(TokenID, AuthorityID) ->
-    check_entry(?TAB, {AuthorityID, TokenID}).
-
--spec is_user_blacklisted(binary(), tk_token:authority_id()) -> boolean().
-is_user_blacklisted(UserID, AuthorityID) ->
-    check_entry(?USER_TAB, {AuthorityID, UserID}).
+    check_entry({AuthorityID, TokenID}).
 
 %%
 
 -spec init(options()) -> {ok, {supervisor:sup_flags(), [supervisor:child_spec()]}}.
 init(Options) ->
-    _ = init_tab(?TAB),
-    _ = init_tab(?USER_TAB),
+    _ = init_tab(),
     _ = load_blacklist_conf(maps:get(path, Options, undefined)),
     {ok, {#{}, []}}.
 
-init_tab(Name) ->
-    ets:new(Name, [set, protected, named_table, {read_concurrency, true}]).
+init_tab() ->
+    ets:new(?TAB, [set, protected, named_table, {read_concurrency, true}]).
 
 -define(ENTRIES_KEY, "entries").
--define(USER_ENTRIES_KEY, "user_entries").
 
 load_blacklist_conf(undefined) ->
     _ = logger:warning("No token blacklist file specified! Blacklisting functionality will be disabled."),
@@ -65,29 +57,27 @@ load_blacklist_conf(undefined) ->
 load_blacklist_conf(Filename) ->
     [Mappings] = yamerl_constr:file(Filename),
     Entries = process_entries(proplists:get_value(?ENTRIES_KEY, Mappings)),
-    put_entires(?TAB, Entries),
-    UserEntries = process_entries(proplists:get_value(?USER_ENTRIES_KEY, Mappings)),
-    put_entires(?USER_TAB, UserEntries).
+    put_entires(Entries).
 
 process_entries(Entries) ->
     lists:foldl(
-        fun({AuthorityID, IDs}, Acc) ->
-            Acc ++ [make_ets_entry(AuthorityID, ID) || ID <- IDs]
+        fun({AuthorityID, TokenIDs}, Acc) ->
+            Acc ++ [make_ets_entry(AuthorityID, ID) || ID <- TokenIDs]
         end,
         [],
         Entries
     ).
 
-make_ets_entry(AuthorityID, ID) ->
-    {{list_to_binary(AuthorityID), list_to_binary(ID)}, true}.
+make_ets_entry(AuthorityID, TokenID) ->
+    {{list_to_binary(AuthorityID), list_to_binary(TokenID)}, true}.
 
 %%
 
-put_entires(Name, Entries) ->
-    ets:insert_new(Name, Entries).
+put_entires(Entries) ->
+    ets:insert_new(?TAB, Entries).
 
-check_entry(Name, Key) ->
-    case ets:lookup(Name, Key) of
+check_entry(Key) ->
+    case ets:lookup(?TAB, Key) of
         [_Entry] -> true;
         [] -> false
     end.
