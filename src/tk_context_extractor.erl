@@ -13,7 +13,6 @@
 -type methods() :: [method_opts()].
 -type method_opts() ::
     {detect_token, tk_context_extractor_detect_token:opts()}
-    | {phony_api_key, tk_context_extractor_phony_api_key:opts()}
     | {user_session_token, tk_context_extractor_user_session_token:opts()}.
 -type extracted_context() :: {context_fragment(), tk_authdata:metadata() | undefined}.
 
@@ -27,7 +26,6 @@
 -type context_fragment() :: bouncer_context_helpers:context_fragment().
 -type opts() ::
     tk_context_extractor_detect_token:opts()
-    | tk_context_extractor_phony_api_key:opts()
     | tk_context_extractor_user_session_token:opts().
 
 %% API functions
@@ -35,8 +33,8 @@
 -spec extract_context(method_opts(), token_data()) -> extracted_context() | undefined.
 extract_context({detect_token, Opts}, TokenData) ->
     tk_context_extractor_detect_token:extract_context(TokenData, Opts);
-extract_context({phony_api_key, Opts}, TokenData) ->
-    tk_context_extractor_phony_api_key:extract_context(TokenData, Opts);
+extract_context({phony_api_key, _}, _TokenData) ->
+    undefined;
 extract_context({user_session_token, Opts}, TokenData) ->
     tk_context_extractor_user_session_token:extract_context(TokenData, Opts).
 
