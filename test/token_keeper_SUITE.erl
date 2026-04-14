@@ -553,7 +553,9 @@ authenticate_blacklisted_jti_fail(C) ->
     SubjectEmail = <<"test@test.test">>,
     Claims = get_user_session_token_claims(JTI, 0, SubjectID, SubjectEmail),
     Token = issue_token_with(Claims, get_filename("keys/local/private.pem", C)),
-    ?assertThrow(#token_keeper_AuthDataRevoked{}, call_authenticate(Token, ?TOKEN_SOURCE_CONTEXT(?USER_TOKEN_SOURCE), C)).
+    ?assertThrow(
+        #token_keeper_AuthDataRevoked{}, call_authenticate(Token, ?TOKEN_SOURCE_CONTEXT(?USER_TOKEN_SOURCE), C)
+    ).
 
 -spec authenticate_non_blacklisted_jti_ok(config()) -> _.
 authenticate_non_blacklisted_jti_ok(C) ->

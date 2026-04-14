@@ -34,8 +34,8 @@
 extract_context({detect_token, Opts}, TokenData) ->
     tk_context_extractor_detect_token:extract_context(TokenData, Opts);
 extract_context({phony_api_key, _}, _TokenData) ->
+    %% NOTE This clause is left behind as a fallback placeholder in place of
+    %% now-removed phony api key detection.
     undefined;
 extract_context({user_session_token, Opts}, TokenData) ->
     tk_context_extractor_user_session_token:extract_context(TokenData, Opts).
-
-%% Internal functions

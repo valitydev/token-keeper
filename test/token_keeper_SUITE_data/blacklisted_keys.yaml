@@ -1,6 +1,3 @@
 entries:
   blacklisting_authority:
     - "MYCOOLKEY"
-user_entries:
-  blacklisting_authority:
-    - "PARTYID"
