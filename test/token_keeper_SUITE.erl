@@ -842,10 +842,6 @@ assert_context(TokenInfo, EncodedContextFragment) ->
 assert_auth({claim_token, #{jti := JTI}}, Auth) ->
     ?assertEqual(<<"ClaimToken">>, Auth#ctx_v1_Auth.method),
     ?assertMatch(#ctx_v1_Token{id = JTI}, Auth#ctx_v1_Auth.token);
-assert_auth({api_key_token, #{jti := JTI, subject_id := SubjectID}}, Auth) ->
-    ?assertEqual(<<"ApiKeyToken">>, Auth#ctx_v1_Auth.method),
-    ?assertMatch(#ctx_v1_Token{id = JTI}, Auth#ctx_v1_Auth.token),
-    ?assertMatch([#ctx_v1_AuthScope{party = ?CTX_ENTITY(SubjectID)}], Auth#ctx_v1_Auth.scope);
 assert_auth({user_session_token, #{jti := JTI} = TokenInfo}, Auth) ->
     ?assertEqual(<<"SessionToken">>, Auth#ctx_v1_Auth.method),
     Exp = maps:get(exp, TokenInfo, undefined),
@@ -866,8 +862,6 @@ assert_auth({user_session_token, #{jti := JTI} = TokenInfo}, Auth) ->
     ?assertEqual(Exp, Auth#ctx_v1_Auth.expiration).
 
 assert_user({claim_token, _}, undefined) ->
-    ok;
-assert_user({api_key_token, _}, undefined) ->
     ok;
 assert_user({user_session_token, #{subject_id := SubjectID, subject_email := SubjectEmail}}, User) ->
     ?assertEqual(SubjectID, User#ctx_v1_User.id),
