@@ -22,14 +22,13 @@
 -export([authenticate_invalid_token_key_fail/1]).
 -export([authenticate_no_payload_claims_fail/1]).
 -export([authenticate_user_session_token_no_payload_claims_fail/1]).
--export([authenticate_phony_api_key_token_ok/1]).
+-export([authenticate_user_session_token_not_detected/1]).
 -export([authenticate_user_session_token_ok/1]).
 -export([authenticate_user_session_token_w_exp_ok/1]).
 -export([authenticate_user_session_token_no_exp_fail/1]).
 -export([authenticate_user_session_token_w_resource_access/1]).
 -export([authenticate_blacklisted_jti_fail/1]).
 -export([authenticate_non_blacklisted_jti_ok/1]).
--export([authenticate_blacklisted_user_fail/1]).
 -export([authenticate_ephemeral_claim_token_ok/1]).
 -export([issue_ephemeral_token_ok/1]).
 -export([authenticate_offline_token_not_found_fail/1]).
@@ -98,7 +97,7 @@ groups() ->
             authenticate_invalid_token_key_fail,
             authenticate_no_payload_claims_fail,
             authenticate_user_session_token_no_payload_claims_fail,
-            authenticate_phony_api_key_token_ok,
+            authenticate_user_session_token_not_detected,
             authenticate_user_session_token_ok,
             authenticate_user_session_token_w_exp_ok,
             authenticate_user_session_token_no_exp_fail,
@@ -130,8 +129,7 @@ groups() ->
         ]},
         {blacklist, [parallel], [
             authenticate_blacklisted_jti_fail,
-            authenticate_non_blacklisted_jti_ok,
-            authenticate_blacklisted_user_fail
+            authenticate_non_blacklisted_jti_ok
         ]}
     ].
 
@@ -441,21 +439,17 @@ authenticate_no_payload_claims_fail(C) ->
     Token = issue_token(Claims, C),
     ?assertThrow(#token_keeper_AuthDataNotFound{}, call_authenticate(Token, ?TOKEN_SOURCE_CONTEXT, C)).
 
--spec authenticate_phony_api_key_token_ok(config()) -> _.
-authenticate_phony_api_key_token_ok(C) ->
+-spec authenticate_user_session_token_not_detected(config()) -> _.
+authenticate_user_session_token_not_detected(C) ->
     JTI = unique_id(),
     SubjectID = unique_id(),
-    Claims = get_phony_api_key_claims(JTI, SubjectID),
+    SubjectEmail = <<"test@test.test">>,
+    Claims = get_user_session_token_claims(JTI, 0, SubjectID, SubjectEmail),
     Token = issue_token(Claims, C),
-    #token_keeper_AuthData{
-        id = undefined,
-        token = Token,
-        status = active,
-        context = Context,
-        metadata = #{?META_PARTY_ID := SubjectID},
-        authority = ?TK_AUTHORITY_KEYCLOAK
-    } = call_authenticate(Token, ?TOKEN_SOURCE_CONTEXT, C),
-    _ = assert_context({api_key_token, #{jti => JTI, subject_id => SubjectID}}, Context).
+    ?assertThrow(
+        #token_keeper_AuthDataNotFound{},
+        call_authenticate(Token, ?TOKEN_SOURCE_CONTEXT, C)
+    ).
 
 -spec authenticate_user_session_token_ok(config()) -> _.
 authenticate_user_session_token_ok(C) ->
@@ -556,25 +550,21 @@ authenticate_user_session_token_no_payload_claims_fail(C) ->
 authenticate_blacklisted_jti_fail(C) ->
     JTI = <<"MYCOOLKEY">>,
     SubjectID = unique_id(),
-    Claims = get_phony_api_key_claims(JTI, SubjectID),
+    SubjectEmail = <<"test@test.test">>,
+    Claims = get_user_session_token_claims(JTI, 0, SubjectID, SubjectEmail),
     Token = issue_token_with(Claims, get_filename("keys/local/private.pem", C)),
-    ?assertThrow(#token_keeper_AuthDataRevoked{}, call_authenticate(Token, ?TOKEN_SOURCE_CONTEXT, C)).
+    ?assertThrow(
+        #token_keeper_AuthDataRevoked{}, call_authenticate(Token, ?TOKEN_SOURCE_CONTEXT(?USER_TOKEN_SOURCE), C)
+    ).
 
 -spec authenticate_non_blacklisted_jti_ok(config()) -> _.
 authenticate_non_blacklisted_jti_ok(C) ->
     JTI = <<"MYCOOLKEY">>,
     SubjectID = unique_id(),
-    Claims = get_phony_api_key_claims(JTI, SubjectID),
+    SubjectEmail = <<"test@test.test">>,
+    Claims = get_user_session_token_claims(JTI, 0, SubjectID, SubjectEmail),
     Token = issue_token_with(Claims, get_filename("keys/secondary/private.pem", C)),
-    ?assertMatch(#token_keeper_AuthData{}, call_authenticate(Token, ?TOKEN_SOURCE_CONTEXT, C)).
-
--spec authenticate_blacklisted_user_fail(config()) -> _.
-authenticate_blacklisted_user_fail(C) ->
-    JTI = unique_id(),
-    SubjectID = <<"PARTYID">>,
-    Claims = get_phony_api_key_claims(JTI, SubjectID),
-    Token = issue_token_with(Claims, get_filename("keys/local/private.pem", C)),
-    ?assertThrow(#token_keeper_AuthDataNotFound{}, call_authenticate(Token, ?TOKEN_SOURCE_CONTEXT, C)).
+    ?assertMatch(#token_keeper_AuthData{}, call_authenticate(Token, ?TOKEN_SOURCE_CONTEXT(?USER_TOKEN_SOURCE), C)).
 
 -spec authenticate_ephemeral_claim_token_ok(config()) -> _.
 authenticate_ephemeral_claim_token_ok(C) ->
@@ -746,9 +736,6 @@ get_base_claims(JTI, Exp) ->
         <<"exp">> => Exp
     }.
 
-get_phony_api_key_claims(JTI, SubjectID) ->
-    maps:merge(#{<<"sub">> => SubjectID}, get_base_claims(JTI)).
-
 get_user_session_token_claims(JTI, Exp, SubjectID, SubjectEmail) ->
     get_user_session_token_claims(JTI, Exp, SubjectID, SubjectEmail, undefined).
 
@@ -855,10 +842,6 @@ assert_context(TokenInfo, EncodedContextFragment) ->
 assert_auth({claim_token, #{jti := JTI}}, Auth) ->
     ?assertEqual(<<"ClaimToken">>, Auth#ctx_v1_Auth.method),
     ?assertMatch(#ctx_v1_Token{id = JTI}, Auth#ctx_v1_Auth.token);
-assert_auth({api_key_token, #{jti := JTI, subject_id := SubjectID}}, Auth) ->
-    ?assertEqual(<<"ApiKeyToken">>, Auth#ctx_v1_Auth.method),
-    ?assertMatch(#ctx_v1_Token{id = JTI}, Auth#ctx_v1_Auth.token),
-    ?assertMatch([#ctx_v1_AuthScope{party = ?CTX_ENTITY(SubjectID)}], Auth#ctx_v1_Auth.scope);
 assert_auth({user_session_token, #{jti := JTI} = TokenInfo}, Auth) ->
     ?assertEqual(<<"SessionToken">>, Auth#ctx_v1_Auth.method),
     Exp = maps:get(exp, TokenInfo, undefined),
@@ -879,8 +862,6 @@ assert_auth({user_session_token, #{jti := JTI} = TokenInfo}, Auth) ->
     ?assertEqual(Exp, Auth#ctx_v1_Auth.expiration).
 
 assert_user({claim_token, _}, undefined) ->
-    ok;
-assert_user({api_key_token, _}, undefined) ->
     ok;
 assert_user({user_session_token, #{subject_id := SubjectID, subject_email := SubjectEmail}}, User) ->
     ?assertEqual(SubjectID, User#ctx_v1_User.id),
@@ -961,11 +942,6 @@ extract_method_detect_token() ->
     {extract_context, #{
         methods => [
             {detect_token, #{
-                phony_api_key_opts => #{
-                    metadata_mappings => #{
-                        party_id => ?META_PARTY_ID
-                    }
-                },
                 user_session_token_opts => #{
                     user_realm => <<"external">>,
                     metadata_mappings => #{

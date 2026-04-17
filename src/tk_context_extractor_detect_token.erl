@@ -8,7 +8,6 @@
 %% API Types
 
 -type opts() :: #{
-    phony_api_key_opts := tk_context_extractor_phony_api_key:opts(),
     user_session_token_opts := tk_context_extractor_user_session_token:opts(),
     user_session_token_origins := list(binary())
 }.
@@ -42,5 +41,5 @@ make_method_opts(TokenType, Opts) ->
 
 get_opts(user_session_token, #{user_session_token_opts := Opts}) ->
     Opts;
-get_opts(phony_api_key, #{phony_api_key_opts := Opts}) ->
-    Opts.
+get_opts(phony_api_key, _) ->
+    undefined.
