@@ -63,6 +63,9 @@
 -define(META_USER_ID, <<"test.rbkmoney.user.id">>).
 -define(META_USER_EMAIL, <<"test.rbkmoney.user.email">>).
 -define(META_USER_REALM, <<"test.rbkmoney.user.realm">>).
+-define(META_USER_AZP, <<"test.rbkmoney.user.azp">>).
+-define(META_USER_AUD, <<"test.rbkmoney.user.aud">>).
+-define(META_USER_JTI, <<"test.rbkmoney.user.jti">>).
 -define(META_CAPI_CONSUMER, <<"test.rbkmoney.capi.consumer">>).
 
 -define(TK_AUTHORITY_KEYCLOAK, <<"test.rbkmoney.keycloak">>).
@@ -456,7 +459,10 @@ authenticate_user_session_token_ok(C) ->
     JTI = unique_id(),
     SubjectID = unique_id(),
     SubjectEmail = <<"test@test.test">>,
-    Claims = get_user_session_token_claims(JTI, 0, SubjectID, SubjectEmail),
+    Claims = maps:merge(
+        get_user_session_token_claims(JTI, 0, SubjectID, SubjectEmail),
+        #{<<"azp">> => <<"test-client">>, <<"aud">> => [<<"aud-1">>, <<"aud-2">>]}
+    ),
     Token = issue_token(Claims, C),
     #token_keeper_AuthData{
         id = undefined,
@@ -466,7 +472,10 @@ authenticate_user_session_token_ok(C) ->
         metadata = #{
             ?META_USER_ID := SubjectID,
             ?META_USER_EMAIL := SubjectEmail,
-            ?META_USER_REALM := <<"external">>
+            ?META_USER_REALM := <<"external">>,
+            ?META_USER_AZP := <<"test-client">>,
+            ?META_USER_AUD := <<"aud-1,aud-2">>,
+            ?META_USER_JTI := JTI
         },
         authority = ?TK_AUTHORITY_KEYCLOAK
     } = call_authenticate(Token, ?TOKEN_SOURCE_CONTEXT(?USER_TOKEN_SOURCE), C),
@@ -947,7 +956,10 @@ extract_method_detect_token() ->
                     metadata_mappings => #{
                         user_id => ?META_USER_ID,
                         user_email => ?META_USER_EMAIL,
-                        user_realm => ?META_USER_REALM
+                        user_realm => ?META_USER_REALM,
+                        user_azp => ?META_USER_AZP,
+                        user_aud => ?META_USER_AUD,
+                        user_jti => ?META_USER_JTI
                     }
                 },
                 user_session_token_origins => [?USER_TOKEN_SOURCE]

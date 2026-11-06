@@ -10,7 +10,10 @@
     metadata_mappings := #{
         user_id := binary(),
         user_email := binary(),
-        user_realm := binary()
+        user_realm := binary(),
+        user_azp => binary(),
+        user_aud => binary(),
+        user_jti => binary()
     },
     user_realm := binary()
 }.
@@ -23,6 +26,8 @@
 -define(CLAIM_USER_EMAIL, <<"email">>).
 -define(CLAIM_EXPIRES_AT, <<"exp">>).
 -define(CLAIM_RESOURCE_ACCESS, <<"resource_access">>).
+-define(CLAIM_AZP, <<"azp">>).
+-define(CLAIM_AUD, <<"aud">>).
 
 %% API functions
 
@@ -32,7 +37,7 @@ extract_context(TokenData, Opts) ->
         AuthParams = extract_auth_params(TokenData),
         UserParams = add_user_realm(extract_user_params(TokenData), Opts),
         Context = create_context(UserParams, AuthParams),
-        Metadata = create_metadata(UserParams),
+        Metadata = create_metadata(UserParams, AuthParams),
         {Context, wrap_metadata(Metadata, Opts)}
     catch
         throw:Reason ->
@@ -45,12 +50,14 @@ extract_user_params(#{
     payload := #{
         ?CLAIM_USER_ID := UserID,
         ?CLAIM_USER_EMAIL := UserEmail
-    }
+    } = Payload
 }) ->
-    #{
+    genlib_map:compact(#{
         id => UserID,
-        email => UserEmail
-    };
+        email => UserEmail,
+        azp => genlib_map:get(?CLAIM_AZP, Payload),
+        aud => normalize_aud(genlib_map:get(?CLAIM_AUD, Payload))
+    });
 extract_user_params(TokenData) ->
     RequiredKeys = [
         ?CLAIM_USER_ID,
@@ -128,13 +135,32 @@ maybe_auth_access_list(#{resource_access := ResourceAccess}) ->
 maybe_auth_access_list(_) ->
     undefined.
 
-create_metadata(UserParams) ->
+create_metadata(UserParams, AuthParams) ->
     #{
         user_id => maps:get(id, UserParams),
         user_email => maps:get(email, UserParams),
-        user_realm => maps:get(realm, UserParams)
+        user_realm => maps:get(realm, UserParams),
+        user_azp => maps:get(azp, UserParams, undefined),
+        user_aud => maps:get(aud, UserParams, undefined),
+        user_jti => maps:get(token_id, AuthParams)
     }.
 
 wrap_metadata(Metadata, ExtractorOpts) ->
     Mappings = maps:get(metadata_mappings, ExtractorOpts),
-    tk_utils:remap(genlib_map:compact(Metadata), Mappings).
+    tk_utils:remap(drop_unmapped_optional(genlib_map:compact(Metadata), Mappings), Mappings).
+
+%% `azp`, `aud` and `jti` are optional: skip them when no mapping is configured
+%% instead of failing in `tk_utils:remap/2`.
+drop_unmapped_optional(Metadata, Mappings) ->
+    maps:filter(
+        fun(Key, _) -> not lists:member(Key, [user_azp, user_aud, user_jti]) orelse maps:is_key(Key, Mappings) end,
+        Metadata
+    ).
+
+%% `aud` is either a string or a list of strings; metadata values must be binaries.
+normalize_aud(Aud) when is_binary(Aud) ->
+    Aud;
+normalize_aud([_ | _] = Auds) ->
+    iolist_to_binary(lists:join(<<",">>, Auds));
+normalize_aud(_) ->
+    undefined.
